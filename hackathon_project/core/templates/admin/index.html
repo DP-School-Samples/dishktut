@@ -1,0 +1,89 @@
+{% extends "admin/index.html" %}
+
+{% block content %}
+<div class="dashboard-quick-actions" style="margin-bottom: 30px;">
+    <div class="module" style="padding: 20px; border-radius: 14px; background: rgba(22,26,44,0.6); border: 1px solid var(--border);">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;margin-top:0;margin-bottom:15px;display:flex;align-items:center;gap:8px;color:#fff;">
+            <span>🌐</span> Hackathon Control Deck
+            {% if h_state %}
+                {% if h_state.is_finished %}
+                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,93,108,0.15);color:var(--danger);">Finished</span>
+                {% elif h_state.is_paused %}
+                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,138,76,0.15);color:var(--accent);">Paused</span>
+                {% elif h_state.is_started %}
+                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.15);color:var(--success);box-shadow: 0 0 10px rgba(74,222,128,0.2);">Live</span>
+                {% else %}
+                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.08);color:var(--muted);">Standby</span>
+                {% endif %}
+            {% else %}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.08);color:var(--muted);">No State</span>
+            {% endif %}
+        </h3>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+            {% if not h_state or not h_state.is_started or h_state.is_finished %}
+                <a href="/admin-api/start-hackathon/" class="qa-btn success-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                    <span>🚀</span> Start Hackathon
+                </a>
+            {% else %}
+                {% if h_state.is_paused %}
+                    <a href="/admin-api/resume-hackathon/" class="qa-btn success-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                        <span>▶️</span> Resume Hackathon
+                    </a>
+                {% else %}
+                    <a href="/admin-api/pause-hackathon/" class="qa-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,138,76,0.1);color:var(--accent);border-color:rgba(255,138,76,0.2);">
+                        <span>⏸️</span> Pause Hackathon
+                    </a>
+                {% endif %}
+                <a href="/admin-api/end-hackathon/" class="qa-btn danger" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,93,108,0.1);color:var(--danger);border-color:rgba(255,93,108,0.2);" onclick="return confirm('Are you sure you want to end the hackathon?');">
+                    <span>🛑</span> End Hackathon
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="module" style="padding: 20px; border-radius: 14px; background: rgba(22,26,44,0.6); border: 1px solid var(--border);">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;margin-top:0;margin-bottom:15px;display:flex;align-items:center;gap:8px;color:#fff;">
+            <span>⚡</span> Bonus Round Control Deck
+            {% if b_state %}
+                {% if b_state.is_active %}
+                    {% if b_state.is_paused %}
+                        <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,138,76,0.15);color:var(--accent);">Paused</span>
+                    {% else %}
+                        <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.15);color:var(--success);box-shadow: 0 0 10px rgba(74,222,128,0.2);">Active</span>
+                    {% endif %}
+                {% else %}
+                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.08);color:var(--muted);">Inactive</span>
+                {% endif %}
+            {% else %}
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.08);color:var(--muted);">No Bonus</span>
+            {% endif %}
+        </h3>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;">
+            {% if b_state %}
+                {% if not b_state.is_active %}
+                    <a href="/admin-api/start-bonus/" class="qa-btn success-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                        <span>⚡</span> Activate Bonus
+                    </a>
+                {% else %}
+                    {% if b_state.is_paused %}
+                        <a href="/admin-api/resume-bonus/" class="qa-btn success-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;">
+                            <span>▶️</span> Resume Bonus
+                        </a>
+                    {% else %}
+                        <a href="/admin-api/pause-bonus/" class="qa-btn" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,138,76,0.1);color:var(--accent);border-color:rgba(255,138,76,0.2);">
+                            <span>⏸️</span> Pause Bonus
+                        </a>
+                    {% endif %}
+                    <a href="/admin-api/end-bonus/" class="qa-btn danger" style="padding:10px 16px;font-size:13px;border-radius:8px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,93,108,0.1);color:var(--danger);border-color:rgba(255,93,108,0.2);">
+                        <span>🛑</span> Deactivate Bonus
+                    </a>
+                {% endif %}
+            {% else %}
+                <span style="font-size:12px;color:var(--muted);align-self:center;">Create a Bonus Question model instance first.</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{{ block.super }}
+{% endblock %}

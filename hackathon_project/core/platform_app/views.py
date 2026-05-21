@@ -1,4 +1,8 @@
-from urllib import request
+import os
+import json
+import urllib.request as urlreq
+import urllib.error
+from urllib import request as urllib_request
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -9,6 +13,7 @@ from .utils import run_python_code
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models import Case, When, IntegerField
+
 @login_required
 def leaderboard(request):
     state = HackathonState.objects.first()
@@ -16,7 +21,7 @@ def leaderboard(request):
         return redirect('waiting_room')
     if state.is_finished:
         return redirect('finished')
-    if not state.is_started:
+    if not state.is_started or state.is_paused:
         return redirect('waiting_room')
 
     # Regular points from problems
@@ -72,7 +77,7 @@ def home(request):
     if state.is_finished:
         return redirect('finished')
 
-    if not state.is_started:
+    if not state.is_started or state.is_paused:
         return redirect('waiting_room')
 
     problems = Problem.objects.all().order_by(
@@ -107,7 +112,7 @@ def problem_detail(request, problem_id):
     if state.is_finished:
         return redirect('finished')
 
-    if not state.is_started:
+    if not state.is_started or state.is_paused:
         return redirect('waiting_room')
 
     end_time = state.start_time + timedelta(hours=2)
@@ -128,11 +133,13 @@ def problem_detail(request, problem_id):
 
     return render(request, 'problem.html', {
         'end_time': end_time.isoformat(),
-        'problem': problem, 
-        'progress': progress, 
+        'problem': problem,
+        'progress': progress,
         'total_score': total_score,
         'prev_id': prev_id,
-        'next_id': next_id
+        'next_id': next_id,
+        'hints_enabled': state.hints_enabled,
+        'onboarding_tour_enabled': state.onboarding_tour_enabled,
     })
 
 # API for Save/Load/Submit
@@ -221,17 +228,18 @@ def bonus_status(request):
     if elapsed_minutes < bonus.appear_after_minutes:
         return JsonResponse({'available': False})
 
-    # Set activated_at only once, never reset it
     if not bonus.activated_at:
         bonus.activated_at = timezone.now()
         bonus.save()
 
-    open_seconds = (timezone.now() - bonus.activated_at).total_seconds()
+    if bonus.is_paused:
+        open_seconds = (bonus.paused_at - bonus.activated_at).total_seconds()
+    else:
+        open_seconds = (timezone.now() - bonus.activated_at).total_seconds()
     duration_seconds = bonus.duration_minutes * 60
 
     winners_so_far = BonusSubmission.objects.filter(bonus=bonus, is_correct=True).count()
     
-    # Use integer comparison to avoid float flickering near boundary
     time_expired = open_seconds >= duration_seconds
     spots_full = winners_so_far >= bonus.max_winners
     expired = time_expired or spots_full
@@ -246,8 +254,7 @@ def bonus_status(request):
 
     time_remaining_seconds = max(0, int(duration_seconds - open_seconds))
 
-    # Available = not expired AND user hasn't submitted yet (right or wrong)
-    available = not expired and not already_submitted
+    available = not expired and not already_submitted and not bonus.is_paused
 
     return JsonResponse({
         'available': available,
@@ -338,11 +345,12 @@ def check_hackathon_status(request):
         state.save()
 
     is_finished = state.is_finished
-    is_live = state.is_started and not state.is_finished
+    is_live = state.is_started and not state.is_finished and not state.is_paused
 
     return JsonResponse({
         'is_finished': is_finished,
-        'is_live': is_live
+        'is_live': is_live,
+        'is_paused': state.is_paused
     })
 @login_required
 def run_code_custom(request):
@@ -352,10 +360,176 @@ def run_code_custom(request):
         output, error = run_python_code(user_code)
         return JsonResponse({'output': output, 'error': error})
 @login_required
+def ai_hint(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    state = HackathonState.objects.first()
+    if state and not state.hints_enabled:
+        return JsonResponse({'hint': 'AI hints have been disabled by the admin for this event.'}, status=200)
+
+    problem_id = request.POST.get('problem_id')
+    current_code = request.POST.get('code', '')
+
+    problem = get_object_or_404(Problem, id=problem_id)
+
+    api_key = os.environ.get('GEMINI_API_KEY', '')
+    if not api_key:
+        return JsonResponse({'hint': 'AI hints are not configured. Ask your admin to set GEMINI_API_KEY.'})
+
+    prompt = f"""You are a helpful coding tutor for a Python hackathon. Help the student with this problem.
+
+Problem: {problem.title}
+Description: {problem.description}
+
+Student's current code:
+```python
+{current_code if current_code.strip() else '(empty - student has not written anything yet)'}
+```
+
+Give a helpful hint to guide them toward the solution WITHOUT giving away the full answer.
+Be encouraging, concise (2-4 sentences max), and specific to their code if they've written something.
+Focus on the approach/algorithm, not the exact implementation."""
+
+    payload = json.dumps({
+        'contents': [{'parts': [{'text': prompt}]}],
+        'generationConfig': {'maxOutputTokens': 256, 'temperature': 0.7}
+    }).encode()
+
+    req = urlreq.Request(
+        f'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={api_key}',
+        data=payload,
+        headers={'Content-Type': 'application/json'},
+        method='POST'
+    )
+
+    try:
+        with urlreq.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            hint_text = data['candidates'][0]['content']['parts'][0]['text']
+            return JsonResponse({'hint': hint_text})
+    except urllib.error.HTTPError:
+        return JsonResponse({'hint': 'AI hint service is temporarily unavailable. Try again shortly.'})
+    except Exception:
+
+        return JsonResponse({'hint': 'Could not load hint at this time. Keep trying!'})
+
+@login_required
+def features(request):
+    state = HackathonState.objects.first()
+    return JsonResponse({
+        'hints_enabled': state.hints_enabled if state else True,
+        'onboarding_tour_enabled': state.onboarding_tour_enabled if state else True,
+    })
+
+@login_required
 def finished(request):
     state = HackathonState.objects.first()
     if state and state.is_started and not state.is_finished:
+        if state.is_paused:
+            return redirect('waiting_room')
         return redirect('home')
     bonus_points = BonusSubmission.objects.filter(team=request.user, is_correct=True).aggregate(s=Sum('points_awarded'))['s'] or 0
     total_score = sum(tp.points for tp in TeamProgress.objects.filter(team=request.user)) + bonus_points
     return render(request, 'finished.html', {'total_score': total_score})
+
+@login_required
+def admin_start_hackathon(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    state, _ = HackathonState.objects.get_or_create(id=1)
+    state.is_started = True
+    state.is_finished = False
+    state.is_paused = False
+    state.paused_at = None
+    state.start_time = timezone.now()
+    state.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_pause_hackathon(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    state = HackathonState.objects.first()
+    if state and state.is_started and not state.is_finished and not state.is_paused:
+        state.is_paused = True
+        state.paused_at = timezone.now()
+        state.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_resume_hackathon(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    state = HackathonState.objects.first()
+    if state and state.is_started and not state.is_finished and state.is_paused:
+        if state.paused_at and state.start_time:
+            duration = timezone.now() - state.paused_at
+            state.start_time = state.start_time + duration
+        state.is_paused = False
+        state.paused_at = None
+        state.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_end_hackathon(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    state = HackathonState.objects.first()
+    if state:
+        state.is_finished = True
+        state.is_paused = False
+        state.paused_at = None
+        state.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_start_bonus(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    bonus = BonusQuestion.objects.first()
+    if bonus:
+        bonus.is_active = True
+        bonus.is_paused = False
+        bonus.paused_at = None
+        bonus.activated_at = timezone.now()
+        bonus.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_pause_bonus(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    bonus = BonusQuestion.objects.first()
+    if bonus and bonus.is_active and not bonus.is_paused:
+        bonus.is_paused = True
+        bonus.paused_at = timezone.now()
+        bonus.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_resume_bonus(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    bonus = BonusQuestion.objects.first()
+    if bonus and bonus.is_active and bonus.is_paused:
+        if bonus.paused_at and bonus.activated_at:
+            duration = timezone.now() - bonus.paused_at
+            bonus.activated_at = bonus.activated_at + duration
+        bonus.is_paused = False
+        bonus.paused_at = None
+        bonus.save()
+    return redirect('/admin/')
+
+@login_required
+def admin_end_bonus(request):
+    if not request.user.is_staff:
+        return redirect('waiting_room')
+    bonus = BonusQuestion.objects.first()
+    if bonus:
+        bonus.is_active = False
+        bonus.is_paused = False
+        bonus.paused_at = None
+        bonus.activated_at = None
+        bonus.save()
+    return redirect('/admin/')

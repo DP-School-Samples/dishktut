@@ -4,7 +4,11 @@ from django.contrib.auth.models import User
 class HackathonState(models.Model):
     is_started = models.BooleanField(default=False)
     is_finished = models.BooleanField(default=False)
-    start_time = models.DateTimeField(null=True, blank=True, help_text="When the hackathon officially starts")
+    is_paused = models.BooleanField(default=False)
+    paused_at = models.DateTimeField(null=True, blank=True)
+    start_time = models.DateTimeField(null=True, blank=True)
+    hints_enabled = models.BooleanField(default=True, help_text='Allow teams to request AI hints on problem pages')
+    onboarding_tour_enabled = models.BooleanField(default=True, help_text='Show the guided UI tour to teams on their first visit to a problem')
 
     class Meta:
         verbose_name_plural = "Hackathon State"
@@ -56,6 +60,8 @@ class BonusQuestion(models.Model):
     duration_minutes = models.IntegerField(default=7)
     appear_after_minutes = models.IntegerField(default=120, choices=APPEAR_CHOICES)
     is_active = models.BooleanField(default=False)
+    is_paused = models.BooleanField(default=False)
+    paused_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
